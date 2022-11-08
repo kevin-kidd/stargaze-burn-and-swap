@@ -1,34 +1,18 @@
-This is a [Next.js](https://nextjs.org/) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
+## Description
+This is a simple burn-and-swap dApp which is intended to be a proof of concept for a future project. Using this, your holders can burn their NFTs in return for a newly minted NFT from a separate collection on the [Stargaze blockchain](https://stargaze.zone).
 
-## Getting Started
+### Instructions
 
-First, run the development server:
+- Modify `config.example.js` and rename it to `config.js` when complete.
+- Set the contract addresses for both your collections.
+  - The burn contract is the collection in which your holders will be burning their NFTs (wave 1)
+  - The swap contract is the collection which you will be minting new tokens from (wave 2)
+- Add your backend wallet's mnemonic to `.env.example` and rename it to `.env.local`
+  - This wallet must be the admin address with minting privileges on your swap collection (wave 2)
+- Enable or disable burning in the config file. If disabled, the backend will collect the NFTs instead of burning them.
+- Choose whether to mint the same token ID in the config file. If enabled, holders will receive an NFT from the wave 2 collection with matching token IDs from their burned wave 1 NFTs.
 
-```bash
-npm run dev
-# or
-yarn dev
-```
+### Usage
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `pages/index.tsx`. The page auto-updates as you edit the file.
-
-[API routes](https://nextjs.org/docs/api-routes/introduction) can be accessed on [http://localhost:3000/api/hello](http://localhost:3000/api/hello). This endpoint can be edited in `pages/api/hello.ts`.
-
-The `pages/api` directory is mapped to `/api/*`. Files in this directory are treated as [API routes](https://nextjs.org/docs/api-routes/introduction) instead of React pages.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js/) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/deployment) for more details.
+- Run `yarn install` to install the package dependencies
+- Run `yarn dev` to start the dev environment
