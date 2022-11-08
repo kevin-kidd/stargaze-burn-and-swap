@@ -7,14 +7,19 @@ import {ToastContainer} from "react-toastify";
 import 'react-toastify/dist/ReactToastify.css';
 import {ConnectCard} from "../components/ConnectCard";
 import {TokensCard} from "../components/TokensCard";
+import {TransactionsTable} from "../components/TransactionsTable";
 
 declare global {
   interface Window extends KeplrWindow {}
 }
 
 const Home: NextPage = () => {
+
   const [client, setClient] = useState<SigningCosmWasmClient | undefined>();
   const [address, setAddress] = useState<string>("");
+  const [isReloadingTransactions, setIsReloadingTransactions] = useState<boolean>(false);
+
+  const reloadTransactions = () => setIsReloadingTransactions(!isReloadingTransactions);
 
   return (
     <div>
@@ -24,17 +29,21 @@ const Home: NextPage = () => {
       </Head>
       <main>
         <div className="flex flex-col w-full justify-center items-center pt-10">
-            <h1 className="text-white font-semibold text-4xl">
-                Burn & Swap
-            </h1>
-            <div className="rounded-box w-full max-w-xl bg-slate-600 mx-auto p-10 mt-10 flex flex-col items-center">
-              {
-                client ?
-                  <TokensCard client={client} address={address} />
-                  :
-                  <ConnectCard setAddress={setAddress} setClient={setClient} />
-              }
-            </div>
+          <h1 className="text-white font-semibold text-4xl">
+              Burn & Swap
+          </h1>
+          <div className="rounded-box w-full max-w-xl bg-slate-600 mx-auto p-10 mt-10 flex flex-col items-center">
+            {
+              client ?
+                <TokensCard client={client} address={address} reloadTransactions={reloadTransactions} />
+                :
+                <ConnectCard setAddress={setAddress} setClient={setClient} />
+            }
+          </div>
+          {
+            client && <TransactionsTable address={address} isReloadingTransactions={isReloadingTransactions} reloadTransactions={reloadTransactions} />
+          }
+
         </div>
         <ToastContainer
           position="top-right"

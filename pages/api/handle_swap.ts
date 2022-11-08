@@ -7,6 +7,7 @@ import {GasPrice} from "@cosmjs/stargate";
 import {AccountData} from "@cosmjs/amino";
 import {toUtf8} from "@cosmjs/encoding";
 import { MsgExecuteContract } from "cosmjs-types/cosmwasm/wasm/v1/tx";
+import {sleep} from "@iov/utils";
 
 const requestHandler = async (req: NextApiRequest, res: NextApiResponse) => {
 
@@ -43,11 +44,14 @@ const requestHandler = async (req: NextApiRequest, res: NextApiResponse) => {
     });
   }
 
+  await sleep(5000);
+
   const inventoryResponse = await client.queryContractSmart(
     CONTRACTS.burn_contract.sg721,
     {
       tokens: {
-        owner: accounts[0].address
+        owner: accounts[0].address,
+        limit: 300
       }
     }
   );
@@ -60,6 +64,7 @@ const requestHandler = async (req: NextApiRequest, res: NextApiResponse) => {
 
   for(const token of req.body.tokens) {
     if(!inventoryResponse.tokens.some((tokenId: string) => tokenId === token)) {
+      console.error(inventoryResponse.tokens);
       return res.status(500).json({
         error: `Did not find token: ${token} in the backend's inventory.`
       });
@@ -67,8 +72,6 @@ const requestHandler = async (req: NextApiRequest, res: NextApiResponse) => {
   }
 
   let recipient: string | null = null;
-
-  // Check TX hash and determine recipient address
 
   const txHashResponse = await client.getTx(req.body.txHash);
   if(!txHashResponse || !txHashResponse.events) {

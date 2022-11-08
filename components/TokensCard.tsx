@@ -12,9 +12,11 @@ export type METADATA = {
 export const TokensCard: FunctionComponent<{
   client: SigningCosmWasmClient
   address: string
+  reloadTransactions: () => void
 }> = ({
   client,
-  address
+  address,
+  reloadTransactions
 }) => {
 
   const [inventoryType, setInventoryType] = useState<string>("burnable");
@@ -40,7 +42,7 @@ export const TokensCard: FunctionComponent<{
       </div>
       {
         inventoryType === "burnable" ?
-          <BurnTokenTable client={client} address={address} inventoryType={inventoryType} setInventoryType={setInventoryType} />
+          <BurnTokenTable client={client} address={address} inventoryType={inventoryType} setInventoryType={setInventoryType} reloadTransactions={reloadTransactions} />
           :
           <SwappedTokenTable client={client} address={address} inventoryType={inventoryType} />
       }

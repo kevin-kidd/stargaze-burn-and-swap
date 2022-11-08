@@ -8,23 +8,28 @@ import {toast} from "react-toastify";
 import { MsgExecuteContract } from "cosmjs-types/cosmwasm/wasm/v1/tx";
 import { toUtf8 } from '@cosmjs/encoding';
 import {CONFIG, CONTRACTS} from "../config";
+import {useIndexedDBStore} from "use-indexeddb";
 
 export const BurnTokenTable: FunctionComponent<{
   client: SigningCosmWasmClient
   address: string
   inventoryType: string
   setInventoryType: Dispatch<SetStateAction<string>>
+  reloadTransactions: () => void
 }> = ({
   client,
   address,
   inventoryType,
-  setInventoryType
+  setInventoryType,
+  reloadTransactions
 }) => {
 
   const [inventory, setInventory] = useState<METADATA[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [burning, setBurning] = useState<boolean>(false);
   const [selectedTokens, setSelectedTokens] = useState<string[]>([]);
+
+  const { add, deleteByID, update } = useIndexedDBStore("transactions");
 
   useEffect(() => {
     const getInventory = async () => {
@@ -40,71 +45,182 @@ export const BurnTokenTable: FunctionComponent<{
     if(inventoryType === "burnable") getInventory();
   }, [inventoryType]);
 
-  const burnTokens = async () => {
+  const burnAndSwapTokens = async () => {
     setBurning(true);
     const burningToastID = toast.loading(
       "Burning...",
       {
         toastId: "burning"
       }
-    )
+    );
+
+    let databaseIndex: number;
     try {
-      const transferMsgs: MsgExecuteContractEncodeObject[] = [];
-      for(const tokenId of selectedTokens) {
-        transferMsgs.push({
-            typeUrl: '/cosmwasm.wasm.v1.MsgExecuteContract',
-            value: MsgExecuteContract.fromPartial({
-              sender: address,
-              contract: CONTRACTS.burn_contract.sg721,
-              msg: toUtf8(
-                JSON.stringify({
-                  transfer_nft: {
-                    recipient: CONFIG.backend_address,
-                    token_id: tokenId
-                  }
-                })
-              )
-            })
-        })
+      databaseIndex = await add({ status: "Initiated", tokenIds: selectedTokens })
+    } catch (error: unknown) {
+      console.error(error);
+      if(error instanceof Error) {
+        toast.update(
+          burningToastID,
+          {
+            render: error.message,
+            autoClose: 5000,
+            isLoading: false,
+            type: "error",
+            toastId: "burning"
+          }
+        );
+      } else {
+        toast.update(
+          burningToastID,
+          {
+            render: "Failed to add transaction to localdb. Try a different browser.",
+            autoClose: 5000,
+            isLoading: false,
+            type: "error",
+            toastId: "burning"
+          }
+        );
+      }
+      return
+    }
+
+    const transferMsgs: MsgExecuteContractEncodeObject[] = [];
+    for(const tokenId of selectedTokens) {
+      transferMsgs.push({
+          typeUrl: '/cosmwasm.wasm.v1.MsgExecuteContract',
+          value: MsgExecuteContract.fromPartial({
+            sender: address,
+            contract: CONTRACTS.burn_contract.sg721,
+            msg: toUtf8(
+              JSON.stringify({
+                transfer_nft: {
+                  recipient: CONFIG.backend_address,
+                  token_id: tokenId
+                }
+              })
+            )
+          })
+      })
       }
 
-      const transferTx = await client.signAndBroadcast(
+    let transferTx;
+
+    try {
+      transferTx = await client.signAndBroadcast(
         address,
         transferMsgs,
         'auto',
         'Burn & Swap by @KevinAKidd - https://github.com/kevinakidd'
       );
-
-      if(transferTx.code !== 0) {
-        console.error(transferTx);
+    } catch (error: unknown) {
+      console.error(error);
+      if(error instanceof Error) {
         toast.update(
           burningToastID,
           {
-            render: "Transaction failed.",
+            render: error.message,
             autoClose: 5000,
             isLoading: false,
             type: "error",
             toastId: "burning"
           }
         );
-        return;
-      }
-
-      if(!transferTx.transactionHash) {
-        console.error(transferTx);
+        if(error.message.includes("Request rejected")) {
+          await deleteByID(databaseIndex);
+          return;
+        }
+        await update({
+          id: databaseIndex,
+          tokenIds: selectedTokens,
+          status: "Error",
+          errorMessage: error.message
+        });
+      } else {
         toast.update(
           burningToastID,
           {
-            render: "Unable to fetch transaction hash. Please contact support for help.",
+            render: "An unexpected error occurred. Please contact support for help.",
             autoClose: 5000,
             isLoading: false,
             type: "error",
             toastId: "burning"
           }
         );
-        return;
+        await update({
+          id: databaseIndex,
+          tokenIds: selectedTokens,
+          status: "Error",
+          errorMessage: "An unexpected error occurred. #0001"
+        });
       }
+      reloadTransactions();
+      return;
+    }
 
+    if(transferTx.code !== 0) {
+      console.error(transferTx);
+      toast.update(
+        burningToastID,
+        {
+          render: "Transaction failed.",
+          autoClose: 5000,
+          isLoading: false,
+          type: "error",
+          toastId: "burning"
+        }
+      );
+      await update({
+        id: databaseIndex,
+        tokenIds: selectedTokens,
+        status: "Error",
+        errorMessage: "Transaction failed."
+      });
+      reloadTransactions();
+      return;
+    }
+
+    if(!transferTx.transactionHash) {
+      console.error(transferTx);
+      toast.update(
+        burningToastID,
+        {
+          render: "Unable to fetch transaction hash. Please contact support for help.",
+          autoClose: 5000,
+          isLoading: false,
+          type: "error",
+          toastId: "burning"
+        }
+      );
+      await update({
+        id: databaseIndex,
+        tokenIds: selectedTokens,
+        status: "Error",
+        errorMessage: "Unable to fetch transaction hash. Please contact support for help."
+      });
+      reloadTransactions();
+      return;
+    }
+
+    try {
+      await update({
+        id: databaseIndex,
+        tokenIds: selectedTokens,
+        txHash: transferTx.transactionHash,
+        status: "Processing"
+      });
+    } catch (error: any) {
+      toast.error(
+        "Failed to add txHash to localdb: " + transferTx.transactionHash,
+        {
+          type: "info",
+        }
+      );
+      console.error(error);
+    }
+
+    let responseData;
+    try {
       const response = await fetch(
         "/api/handle_swap",
         {
@@ -118,50 +234,27 @@ export const BurnTokenTable: FunctionComponent<{
           method: 'POST'
         }
       );
-
-      const responseData = await response.json();
-
-      if(responseData.message) {
-        // update localstorage -- TODO
+      responseData = await response.json();
+    } catch (error: any) {
+      if(error.data && error.data.error) {
         toast.update(
           burningToastID,
           {
-            render: responseData.message,
-            autoClose: 5000,
-            isLoading: false,
-            type: "success",
-            toastId: "burning"
-          }
-        );
-        setInventoryType("swapped");
-        return;
-      } else if(responseData.error) {
-        console.error(responseData.error);
-        toast.update(
-          burningToastID,
-          {
-            render: responseData.error,
+            render: error.data.error,
             autoClose: 5000,
             isLoading: false,
             type: "error",
             toastId: "burning"
           }
         );
-      } else {
-        console.error(responseData);
-        toast.update(
-          burningToastID,
-          {
-            render: "An unexpected error occurred.",
-            autoClose: 5000,
-            isLoading: false,
-            type: "error",
-            toastId: "burning"
-          }
-        );
-      }
-    } catch (error: unknown | any) {
-      if(error instanceof Error) {
+        await update({
+          id: databaseIndex,
+          tokenIds: selectedTokens,
+          txHash: transferTx.transactionHash,
+          status: "Error",
+          errorMessage: error.data.error
+        });
+      } else if(error instanceof Error) {
         toast.update(
           burningToastID,
           {
@@ -172,34 +265,114 @@ export const BurnTokenTable: FunctionComponent<{
             toastId: "burning"
           }
         );
-        return
+        await update({
+          id: databaseIndex,
+          tokenIds: selectedTokens,
+          txHash: transferTx.transactionHash,
+          status: "Error",
+          errorMessage: error.message
+        });
       } else {
-        if(error.data && error.data.error) {
-          toast.update(
-            burningToastID,
-            {
-              render: error.data.error,
-              autoClose: 5000,
-              isLoading: false,
-              type: "error",
-              toastId: "burning"
-            }
-          );
-          return
-        }
+        toast.update(
+          burningToastID,
+          {
+            render: "An unexpected error occurred. Please contact support for help.",
+            autoClose: 5000,
+            isLoading: false,
+            type: "error",
+            toastId: "burning"
+          }
+        );
+        await update({
+          id: databaseIndex,
+          tokenIds: selectedTokens,
+          txHash: transferTx.transactionHash,
+          status: "Error",
+          errorMessage: "An unexpected error occurred. #0002"
+        });
       }
-      console.error(error);
+      reloadTransactions();
+      setBurning(false);
+      return;
     }
-  toast.update(
-    burningToastID,
-    {
-      render: "An unexpected error occurred.",
-      autoClose: 5000,
-      isLoading: false,
-      type: "error",
-      toastId: "burning"
+
+    if(responseData.message) {
+
+      try {
+        await update({
+          id: databaseIndex,
+          tokenIds: selectedTokens,
+          txHash: transferTx.transactionHash,
+          status: "Success"
+        });
+      } catch (error: any) {
+        toast.error(
+          "Failed to update the transaction status in localdb.",
+          {
+            type: "info",
+          }
+        );
+        console.error(error);
+      }
+
+      toast.update(
+        burningToastID,
+        {
+          render: responseData.message,
+          autoClose: 5000,
+          isLoading: false,
+          type: "success",
+          toastId: "burning"
+        }
+      );
+      setInventoryType("swapped");
+      reloadTransactions();
+      setBurning(false);
+      return;
+
+    } else if(responseData.error) {
+      console.error(responseData.error);
+      toast.update(
+        burningToastID,
+        {
+          render: responseData.error,
+          autoClose: 5000,
+          isLoading: false,
+          type: "error",
+          toastId: "burning"
+        }
+      );
+      await update({
+        id: databaseIndex,
+        tokenIds: selectedTokens,
+        txHash: transferTx.transactionHash,
+        status: "Error",
+        errorMessage: responseData.error
+      });
+      setBurning(false);
+      reloadTransactions();
+      return;
+    } else {
+      console.error(responseData);
+      toast.update(
+        burningToastID,
+        {
+          render: "An unexpected error occurred. Please contact support for help.",
+          autoClose: 5000,
+          isLoading: false,
+          type: "error",
+          toastId: "burning"
+        }
+      );
     }
-  );
+    await update({
+      id: databaseIndex,
+      tokenIds: selectedTokens,
+      txHash: transferTx.transactionHash,
+      status: "Error",
+      errorMessage: "An unexpected error occurred. #0003"
+    });
+    reloadTransactions();
     setBurning(false);
   }
 
@@ -280,7 +453,7 @@ export const BurnTokenTable: FunctionComponent<{
           </tbody>
         </table>
       </div>
-      <button onClick={burnTokens} className="btn btn-accent mt-4 w-3/4" disabled={!inventory || inventory.length === 0 || burning}>
+      <button onClick={burnAndSwapTokens} className="btn btn-accent mt-4 w-3/4" disabled={!inventory || inventory.length === 0 || burning}>
         Burn Tokens
       </button>
     </>
